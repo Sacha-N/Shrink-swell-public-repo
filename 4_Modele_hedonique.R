@@ -202,7 +202,7 @@ lm_model <- lm(
 vif_values <- car::vif(lm_model)
 print(vif_values)
 
-## So we don't have the dep values, because lm can't take it and vif cannot handle feols,
+## So we don't have the FE values, because lm can't take it and vif cannot handle feols,
 ## but there are no VIF values above 2.5 : vif = 1 is no correlation, and between 1 and
 ## 5 = moderate, above 10 = critical. So we're good
 
@@ -367,7 +367,7 @@ fDiD_RGA <-  log_valeur_fonciere ~ RGA_moyen_fort*post_ELAN +
   cote_300m+cote_300m_1km | codgeo + anneemut #omise = cote_p1km
 ## Commune: + nb_log_total + part_log_soc 
 
-fTWFE_RGA <-log_valeur_fonciere ~ RGA_moyen_fort + i(anneemut, RGA_moyen_fort, ref = 2019)+
+fpretrends_RGA <-log_valeur_fonciere ~ RGA_moyen_fort + i(anneemut, RGA_moyen_fort, ref = 2019)+
   ## Maisons
   log_surface_batie + log_surface_parcelle +
   Trois_pieces_et_moins+ Cinq_pieces+ Six_pieces+ Sept_pieces_et_plus+ #omise = 4 pièces
@@ -390,10 +390,10 @@ fTWFE_RGA <-log_valeur_fonciere ~ RGA_moyen_fort + i(anneemut, RGA_moyen_fort, r
   ## Commune:   nb_log_total + part_log_soc 
 
 DiD_RGA <- fixest::feols(fDiD_RGA, data = df_regression, cluster = ~codgeo)
-TWFE_RGA <- fixest::feols(fTWFE_RGA, data = df_regression, cluster = ~codgeo) #19K Nas removed,
+pretrends_RGA <- fixest::feols(fpretrends_RGA, data = df_regression, cluster = ~codgeo) #19K Nas removed,
 
 summary(DiD_RGA)
-summary(TWFE_RGA)
+summary(pretrends_RGA)
 
 
 ## 2.3 Outputs and pretrends
@@ -414,8 +414,8 @@ etable(list(OLS_no_controls, OLS_with_controls, DiD_RGA),
        )
 )
 
-png(paste0(path_outputs, "TWFE_RGA_95CI.pdf"), width = 1000, height = 400)
-fixest::iplot(TWFE_RGA,
+png(paste0(path_outputs, "pretrends_RGA_95CI.pdf"), width = 1000, height = 400)
+fixest::iplot(pretrends_RGA,
               ci_level = 0.95,
               main = "Impact of exposure to shrink swell through time: the ELAN law discontinuity",  # No title
               xlab = "Year of transaction",
@@ -423,8 +423,8 @@ fixest::iplot(TWFE_RGA,
               cex = 1.5)
 dev.off()
 
-png(paste0(path_outputs, "TWFE_RGA_99CI.pdf"), width = 1000, height = 400)
-fixest::iplot(TWFE_RGA,
+png(paste0(path_outputs, "pretrends_RGA_99CI.pdf"), width = 1000, height = 400)
+fixest::iplot(pretrends_RGA,
               ci_level = 0.99,
               main = "",  # No title
               xlab = "Year of transaction",
@@ -602,9 +602,9 @@ etable(list(OLS_reco_codgeo, OLS_reco_dep, OLS_reco_codgeo_2018),
 # Pas d'influence de termes quadratiques. 
 # Pas d'influence sans intéraction. 
 
-############################################
-###### 4. Price-in de CatNat (arrêté) ######
-############################################
+##################################################
+###### 4. Price-in de CatNat (arrêté, 2019) ######
+##################################################
 
 # Dans chaque cas, je veux 1) comparer les 1-2 et les 3-4, ou les 2 et les 3 (mais tous en RGA); idée = commune est le dommage
 # Puis 2) comparer parmi les reconnus, les RGA et les pas RGA 
@@ -710,7 +710,7 @@ final_combined_df <- final_combined_df %>%
 #final_combined_df$time_modified <- relevel(final_combined_df$time_modified, ref = '-1')
 #levels(final_combined_df$time_modified)
 
-## 4.2. Nos deux DiD
+## 4.2. Nos deux DiD sur 2019 
 fstacked_treatment <- log_valeur_fonciere ~ i(time_modified, treatment, ref = '-1')+ #adding treatment keeps results but decreases precision
   # (normal, considering codgeo FE)
   ## Maisons
@@ -754,6 +754,274 @@ fstacked_utter_treatment <-  log_valeur_fonciere ~ i(time_modified, treatment, r
   PEB_A+ PEB_B+ PEB_C+ PEB_D+ #omise = pas de PEB (peut être faut il créer la variable)
   cote_300m+cote_300m_1km   | codgeo + anneemut # omise = côte à +10km
 
+stacked_treatment_2019 <- fixest::feols(fstacked_treatment, 
+                                   data = final_combined_df%>% filter(lubridate::year(saison_ref)==2019), 
+                                   cluster = ~ codgeo)
+stacked_utter_treatment_2019 <- fixest::feols(fstacked_utter_treatment, 
+                                         data = final_combined_df %>% filter(!is.na(utter_treatment) & lubridate::year(saison_ref)==2019), 
+                                         cluster = ~ codgeo)
+
+etable(list(stacked_treatment_2019, stacked_utter_treatment_2019), 
+       tex = TRUE, 
+       dict = myDict, 
+       title = 'In-pricing of shrink-swell insurance in French house prices (2010-2022) - Municipalities requesting CatNat recognition in 2019',
+       notes = "Source: Metropolitain France house sales (2010-2022), DV3F; enriched by Insee PSAR-SL; Shrink swell exposure maps (BRGM); Soil Wetness Index (Météo France)", 
+       digits = 3,
+       fontsize = 'small',
+       se.below = FALSE,
+       coefstat = "se",
+       keep = c('Years to treatment', 'Treatment (return period x clay)'), 
+       extralines = list("^House characteristics" = c("Yes","Yes"),
+                         "^Neighbourhood characteristics" = c("Yes","Yes"),
+                         "^Local amenities" = c("Yes","Yes")
+       )
+)
+
+## 4.3. Pretrends et CI
+
+png(paste0(path_outputs, "Stacked_treatment_2019_95CI.pdf"), width = 1000, height = 400)
+fixest::iplot(stacked_treatment_2019,
+              ci_level = 0.95,
+              main = "Impact of 2019 CatNat recognition through time",  # No title
+              xlab = "Year to treatment",
+              col = raw_sienna, 
+              cex = 1.5)
+dev.off()
+
+png(paste0(path_outputs, "Stacked_utter_treatment_2019_95CI.pdf"), width = 1000, height = 400)
+fixest::iplot(stacked_utter_treatment_2019,
+              ci_level = 0.95,
+              main = "Filtered on houses at risk",  # No title
+              xlab = "Year to treatment (t=0 in 2019)",
+              col = midnight_blue,
+              cex = 1.5)
+dev.off()
+
+# Version hetero
+stacked_treatment_2019h <- fixest::feols(fstacked_treatment, 
+                                        data = final_combined_df%>% filter(lubridate::year(saison_ref)==2019), 
+                                        vcov = 'hetero')
+stacked_utter_treatment_2019h <- fixest::feols(fstacked_utter_treatment, 
+                                              data = final_combined_df %>% filter(!is.na(utter_treatment) & lubridate::year(saison_ref)==2019), 
+                                              vcov = 'hetero')
+
+png(paste0(path_outputs, "Stacked_treatment_2019_95CI_HETERO.pdf"), width = 1000, height = 400)
+fixest::iplot(stacked_treatment_2019h,
+              ci_level = 0.95,
+              main = "Impact of 2019 CatNat recognition through time",  # No title
+              xlab = "Year to treatment",
+              col = raw_sienna, 
+              cex = 1.5)
+dev.off()
+
+png(paste0(path_outputs, "Stacked_utter_treatment_2019_95CI_HETERO.pdf"), width = 1000, height = 400)
+fixest::iplot(stacked_utter_treatment_2019h,
+              ci_level = 0.95,
+              main = "Filtered on houses at risk",  # No title
+              xlab = "Year to treatment (t=0 in 2019)",
+              col = midnight_blue,
+              cex = 1.5)
+dev.off()
+
+## 4.4 Effet du RGA entre groupes
+# Puis la version hurt : on ne met pas RGA tout seul, donc à interpréter comme l'effet total du RGA
+fstacked_hurt <-  log_valeur_fonciere ~ i(time_modified, RGA_moyen_fort) +
+  log_surface_batie + log_surface_parcelle +
+  Trois_pieces_et_moins+ Cinq_pieces+ Six_pieces+ Sept_pieces_et_plus+ #omise = 4 pièces
+  Recent+P_1914+P1914_1944+P1945_1960+P1961_1974+P1975_1989+P2013_+ #omise = P1990_2012
+  Deux_niveaux_et_plus+ #omise = 1 niveau
+  Sans_SdB+Deux_SdB_et_plus+ #omise = 1 SDB
+  Sans_garage+Deux_garages_et_plus+ #omise = 1 garage
+  Terrasse+ Piscine+ Autre_dependance +
+  ## Iris
+  tx_chom_LD + part_3039 +part_couple_enf +part_log_vac+dens_log +
+  part_res_sec+ rap_inter_dec+ mediane_niv_vie+ part_etudiants+
+  ## 200m
+  distance_college + taux_mentions_sur_inscrits+
+  Gare_500m+Gare_3km+ Gare_3km_5km+ Gare_5km_7km+ Gare_7km_10km+ #omise = Gare_p10km
+  Metro_tram_300m + Metro_tram_300m_600m + Metro_tram_600m_1k + #omise = >1km
+  Sevesosh_1km+ Sevesosh_1km_10km+ #omise = Sevesosh_p10km
+  Appartenance_QPV+ QPV_500m+ # omise QPV_p500m_ou_non
+  PEB_A+ PEB_B+ PEB_C+ PEB_D+ #omise = pas de PEB (peut être faut il créer la variable)
+  cote_300m+cote_300m_1km   | codgeo + anneemut # omise = côte à +10km
+
+stacked_hurt_treated_2019 <- fixest::feols(fstacked_hurt, 
+                                      data = final_combined_df%>% filter(lubridate::year(saison_ref)==2019 & treatment==1), 
+                                      cluster = ~ codgeo)
+
+stacked_hurt_untreated_2019 <- fixest::feols(fstacked_hurt, 
+                                        data = final_combined_df %>% filter(lubridate::year(saison_ref)==2019 & treatment==0), 
+                                        cluster = ~ codgeo)
+
+etable(list(stacked_hurt_treated_2019, stacked_hurt_untreated_2019), 
+       tex = TRUE, 
+       dict = myDict, 
+       title = 'Within-group pricing in French house prices (2010-2022) of shrink-swell risk - Municipalities requesting CatNat recognition in 2019',
+       notes = "Source: Metropolitain France house sales (2010-2022), DV3F; enriched by Insee PSAR-SL; Shrink swell exposure maps (BRGM); Soil Wetness Index (Météo France)", 
+       digits = 3,
+       fontsize = 'small',
+       se.below = FALSE,
+       coefstat = "se",
+       keep = c('Years to treatment', 'Exposed to shrink-swell'), 
+       extralines = list("^House characteristics" = c("Yes","Yes"),
+                         "^Neighbourhood characteristics" = c("Yes","Yes"),
+                         "^Local amenities" = c("Yes","Yes")
+       )
+)
+summary(stacked_hurt_treated_2019)
+summary(stacked_hurt_untreated_2019)
+
+## 4.5 Part des retraitements 
+df_retreatments <- final_combined_df  %>% 
+  filter(!is.na(time_modified) & lubridate::year(saison_ref)==2019) %>% 
+  group_by(treatment, time_modified) %>% 
+  summarize(average_past_treatment = mean(reco_catnat_since_2010))
+
+plot_rep2019 <- ggplot(df_retreatments, aes(x = time_modified, y = average_past_treatment, color = as.factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "The issue of repeated treatment: are transactions comparable across groups?",
+    x = "Years to treatment",
+    y = "Average cumulative recognitions since 2010",
+    color = "Treatment Group",
+    caption = str_wrap("Data: French house sales (DV3F). Return periods are computed using Météo France SWIs. ", width = 160),
+  ) +
+  scale_color_manual(values = c("0" = midnight_blue, "1" = raw_sienna), 
+                     breaks = c("1", "0"), 
+                     labels = c("0" = 'Untreated (return period 10-25)',
+                                "1" = 'Treated (return period >25)'), 
+                     name = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        plot.caption = element_text(hjust = 0))
+
+plot_rep2019
+ggsave(paste0(path_outputs, 'stacked_repeated_treatment_2019.pdf'), plot = plot_rep2019, width = 900/72, height = 425/72, dpi = 72)
+
+## 4.6 Graphique de prix de chaque groupes
+density_plot2019 <- ggplot(final_combined_df %>%
+                         filter(!is.na(time_modified) & Valeur_fonciere < 1500000& lubridate::year(saison_ref)==2019),  # Filter at 1.5 million
+                       aes(x = Valeur_fonciere, fill = factor(treatment))) +
+  geom_density(alpha = 0.5) +
+  labs(
+    title = "Distribution of House prices across groups - CatNat recognition in 2019",
+    x = "House price (truncated at 1.5 million euros)",  # Rename x axis
+    y = "Density",
+    caption = str_wrap("Data: French house sales (DV3F). Return periods are computed using Météo France SWIs. ", width = 160)  # Note about filtering
+  ) +
+  scale_fill_manual(
+    values = c("0" = midnight_blue, "1" = raw_sienna), 
+    breaks = c("1", "0"), 
+    labels = c("0" = 'Untreated (return period 10-25)', 
+               "1" = 'Treated (return period >25)'), 
+    name = NULL
+  ) +
+  scale_y_continuous(labels = NULL) +  
+  scale_x_continuous(labels = scales::comma) +  # Remove scientific notation and use comma format
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    plot.caption = element_text(hjust = 0)
+  )
+
+
+density_plot2019
+ggsave(paste0(path_outputs, 'stacked_price_distribution_2019.pdf'), plot = density_plot2019, width = 900/72, height = 425/72, dpi = 72)
+
+## 4.7 Tableau de balance sur les variables numériques
+numerical_columns <- final_combined_df %>%
+  filter(!is.na(time_modified) & lubridate::year(saison_ref)==2019) %>% 
+  ungroup() %>%
+  select(Valeur_fonciere, Surface_batie, Surface_parcelle, 
+         part_log_soc, nb_log_total, distance_college, tx_chom_LD,
+         dens_log, part_3039, part_couple_enf,
+         taux_mentions_sur_inscrits, part_etudiants, 
+         part_log_vac, part_res_sec, mediane_niv_vie, rap_inter_dec)
+numerical_columns <- names(numerical_columns)
+
+# Combining the treatment column and the selected numerical columns
+df_to_summarize <- final_combined_df %>%
+  filter(!is.na(time_modified) & lubridate::year(saison_ref)==2019) %>% 
+  select(treatment, numerical_columns)
+
+# Calculating the average per group
+options(scipen=999)
+df_summary <- df_to_summarize %>%
+  group_by(treatment) %>%
+  summarise(across(everything(), mean, na.rm = TRUE)) %>% 
+  mutate(dens_log = as.numeric(dens_log))
+
+df_summary <- df_to_summarize %>%
+  group_by(treatment) %>%
+  summarise(across(everything(), mean, na.rm = TRUE)) %>% 
+  mutate(dens_log = as.numeric(dens_log)) %>% 
+  rename("Property Value" = Valeur_fonciere,
+         "Built-up Area" = Surface_batie,
+         "Plot Area" = Surface_parcelle,
+         "Share of social housing" = part_log_soc,
+         "Number of dwellings in municipality" = nb_log_total,
+         "Distance to middle-school (km)" = distance_college,
+         "Long-term unemployment rate" = tx_chom_LD,
+         "Density of housing (/km2)" = dens_log,
+         "Share of population aged 30-39" = part_3039,
+         "Share of couples with children" = part_couple_enf,
+         "Share of middle schoolers achieving honours" = taux_mentions_sur_inscrits,
+         "Share of students" = part_etudiants,
+         "Share of vacant dwellings" = part_log_vac,
+         "Share of secondary residence" = part_res_sec,
+         "Median living standard (euros)" = mediane_niv_vie,
+         "Interdecile ratio" = rap_inter_dec)
+
+t_tests_df <- df_to_summarize %>%
+  mutate(dens_log = as.numeric(as.character(dens_log)))
+
+t_tests_df <- t_tests_df%>% 
+  summarise(across(numerical_columns, 
+                   ~ t.test(. ~ treatment, data = t_tests_df)$p.value)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "p_value")
+#They're all significant hihi
+
+custom_round <- function(x) {
+  if (x < 100) {
+    round(x, 1)  # Round to 1 digit
+  } else if (x >= 100 & x < 1000) {
+    round(x, 0)  # Round to 0 digits
+  } else {
+    round(x, -1) # Round to -1 digits (nearest 10)
+  }
+}
+# Vectorize the custom rounding function
+custom_round_vec <- Vectorize(custom_round)
+
+df_summary_transposed <- df_summary %>%
+  pivot_longer(-treatment, names_to = "Variable", values_to = "Value") %>%
+  pivot_wider(names_from = treatment, values_from = Value) %>% 
+  mutate(across(where(is.numeric),custom_round_vec))
+
+# Generating the LaTeX table
+latex_table <- kable(df_summary_transposed, format = "latex", booktabs = TRUE, 
+                     caption = "Average Values per Treatment Status",
+                     col.names = c("Variable", "Treated", "Control")) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+
+# Output the LaTeX code
+cat(latex_table)
+
+final_combined_df %>% group_by(treatment) %>% 
+  filter(!is.na(time_modified) & lubridate::year(saison_ref)==2019) %>% summarize(Municipalities = n_distinct(codgeo),
+                                                        Unique_transactions = n_distinct(idmutation),
+                                                        Transactions = n())
+
+
+######################################################
+###### 5. Price-in de CatNat (arrêté) - stacked ######
+######################################################
+
+# 5.1. Sorties
 stacked_treatment <- fixest::feols(fstacked_treatment, 
                                    data = final_combined_df, 
                                    cluster = ~ codgeo)
@@ -777,7 +1045,7 @@ etable(list(stacked_treatment, stacked_utter_treatment),
        )
 )
 
-## 4.3. Les CI
+## 5.2. Les CI
 png(paste0(path_outputs, "Stacked_treatment_95CI.png"), width = 1000, height = 400)
 fixest::iplot(stacked_treatment,
               ci_level = 0.95,
@@ -822,11 +1090,10 @@ fixest::iplot(stacked_utter_treatment,
               cex = 1.5)
 dev.off()
 
-## 4.4. On essaye de voir l'effet du RGA parmi les traités : ça ne donne pas grand chose..;
+## 5.3. On essaye de voir l'effet du RGA parmi les traités 
 
-# For now, i'm using this one, and i'll comment on how wobbly it is 
 fstacked_hurt <-  log_valeur_fonciere ~ i(time_modified,RGA_moyen_fort)+
-  factor(time_modified)+
+
   ## Maisons
   log_surface_batie + log_surface_parcelle +
   Trois_pieces_et_moins+ Cinq_pieces+ Six_pieces+ Sept_pieces_et_plus+ #omise = 4 pièces
@@ -845,22 +1112,35 @@ fstacked_hurt <-  log_valeur_fonciere ~ i(time_modified,RGA_moyen_fort)+
   Sevesosh_1km+ Sevesosh_1km_10km+ #omise = Sevesosh_p10km
   Appartenance_QPV+ QPV_500m+ # omise QPV_p500m_ou_non
   PEB_A+ PEB_B+ PEB_C+ PEB_D+ #omise = pas de PEB (peut être faut il créer la variable)
-  cote_300m+cote_300m_1km   | codgeo  # omise = côte à +10km
+  cote_300m+cote_300m_1km   | codgeo + anneemut # omise = côte à +10km
 
 stacked_hurt_treated <- fixest::feols(fstacked_hurt, 
                               data = final_combined_df%>% filter(treatment==1), 
                               cluster = ~ codgeo)
-summary(stacked_hurt)
+summary(stacked_hurt_treated)
+
 stacked_hurt_untreated <- fixest::feols(fstacked_hurt, 
                               data = final_combined_df %>% filter(treatment==0), 
                               cluster = ~ codgeo)
+summary(stacked_hurt_untreated)
 
-iplot(stacked_hurt_treated) 
-iplot(stacked_hurt_untreated) 
+etable(list(stacked_hurt_treated, stacked_hurt_untreated), 
+       tex = TRUE, 
+       dict = myDict, 
+       title = 'Within-group pricing in French house prices (2010-2022) of shrink-swell risk - all CatNat assessments (2019-2022)',
+       notes = "Source: Metropolitain France house sales (2010-2022), DV3F; enriched by Insee PSAR-SL; Shrink swell exposure maps (BRGM); Soil Wetness Index (Météo France)", 
+       digits = 3,
+       fontsize = 'small',
+       se.below = FALSE,
+       coefstat = "se",
+       keep = c('Years to treatment', 'Exposed to shrink-swell'), 
+       extralines = list("^House characteristics" = c("Yes","Yes"),
+                         "^Neighbourhood characteristics" = c("Yes","Yes"),
+                         "^Local amenities" = c("Yes","Yes")
+       )
+)
 
-## Pb : multicol when i add baseline rga
-
-## 4.5. Graphe répétition des traitements pour chaque groupe
+## 5.4. Graphe répétition des traitements pour chaque groupe
 
 df_retreatments <- final_combined_df  %>% 
   filter(!is.na(time_modified)) %>% 
@@ -891,7 +1171,7 @@ plot_rep <- ggplot(df_retreatments, aes(x = time_modified, y = average_past_trea
 plot_rep
 ggsave(paste0(path_outputs, 'stacked_repeated_treatment.png'), plot = plot_rep, width = 900/72, height = 425/72, dpi = 72)
 
-## 4.6 Graphique de prix de chaque groupes
+## 5.5 Graphique de prix de chaque groupes
 density_plot <- ggplot(final_combined_df %>% 
                          filter(!is.na(time_modified) & Valeur_fonciere < 1500000),  # Filter at 1.5 million
                        aes(x = Valeur_fonciere, fill = factor(treatment))) +
@@ -922,7 +1202,7 @@ density_plot <- ggplot(final_combined_df %>%
 density_plot
 ggsave(paste0(path_outputs, 'stacked_price_distribution.pdf'), plot = density_plot, width = 900/72, height = 425/72, dpi = 72)
 
-## 4.7 Tableau de balance sur les variables numériques
+## 5.6 Tableau de balance sur les variables numériques
 numerical_columns <- final_combined_df %>%
   ungroup() %>%
   select(Valeur_fonciere, Surface_batie, Surface_parcelle, 
@@ -1006,64 +1286,10 @@ final_combined_df %>% group_by(treatment) %>% summarize(Municipalities = n_disti
 
 # We add, à la main bc i'm late, the number of observations and municipalities
 
-## 4.8 Corrected TWFE
+## 5.7 Corrected TWFE
 
-## Je n'ai pas l'impression que ça fonctionne: ce n'est pas un traitement graduel / échelonné, mais pour chaque saison une DiD
-## simple. L'idéal serait donc de commencer par une différenc simple, tbh.
+## 5.8 Honest DiD :je pense qu'il est mal adapté, mais ça montre que c'est wobbly
 
-## En l'état, ce code n'est pas adapté: je le laisse là en cas de vélléité de reprendre.
-library(etwfe)
-
-mod =
-  etwfe(
-    fml  = lemp ~ lpop, # outcome ~ controls
-    tvar = year,        # time variable
-    gvar = first.treat, # group variable
-    data = mpdta,       # dataset
-    vcov = ~countyreal  # vcov adjustment (here: clustered)
-  )
-
-#Then ATT : 
-emfx(mod)
-emfx(mod, type = "event")
-
-hmod = etwfe(
-  lemp ~ lpop, tvar = year, gvar = first.treat, data = mpdta, 
-  vcov = ~countyreal,
-  xvar = gls           ## <= het. TEs by gls, où ici je mettrais treatment ? confusing
-)
-
-fsun_ab_stacked <- log_valeur_fonciere ~ sunab(cohort = lubridate::year(saison_ref),
-                                                  period = time_modified)+ 
-  ## Maisons
-  log_surface_batie + log_surface_parcelle +
-  Trois_pieces_et_moins+ Cinq_pieces+ Six_pieces+ Sept_pieces_et_plus+ #omise = 4 pièces
-  Recent+P_1914+P1914_1944+P1945_1960+P1961_1974+P1975_1989+P2013_+ #omise = P1990_2012
-  Deux_niveaux_et_plus+ #omise = 1 niveau
-  Sans_SdB+Deux_SdB_et_plus+ #omise = 1 SDB
-  Sans_garage+Deux_garages_et_plus+ #omise = 1 garage
-  Terrasse+ Piscine+ Autre_dependance +
-  ## Iris
-  tx_chom_LD + part_3039 +part_couple_enf +part_log_vac+dens_log +
-  part_res_sec+ rap_inter_dec+ mediane_niv_vie+ part_etudiants+
-  ## 200m
-  distance_college + taux_mentions_sur_inscrits+
-  Gare_500m+Gare_3km+ Gare_3km_5km+ Gare_5km_7km+ Gare_7km_10km+ #omise = Gare_p10km
-  Metro_tram_300m + Metro_tram_300m_600m + Metro_tram_600m_1k + #omise = >1km
-  Sevesosh_1km+ Sevesosh_1km_10km+ #omise = Sevesosh_p10km
-  Appartenance_QPV+ QPV_500m+ # omise QPV_p500m_ou_non
-  PEB_A+ PEB_B+ PEB_C+ PEB_D+ #omise = pas de PEB (peut être faut il créer la variable)
-  cote_300m+cote_300m_1km   | codgeo + anneemut # omise = côte à +10km
-
-sun_ab_stacked <- fixest::feols(fsun_ab_stacked, 
-                                   data = final_combined_df, 
-                                   cluster= ~ codgeo)
-
-etable(sun_ab_stacked)
-
-
-## 4.9 Honest DiD : même commentaire, je pense qu'il est mal adapté, mais ça montre que c'est wobbly
-### Corriger pour 5-3
 coefficients <- summary(stacked_treatment)$coefficients
 betahat <- coefficients[grep("time_modified", names(coefficients)) ]#save the coefficients
 
@@ -1073,15 +1299,45 @@ sigma <- cov_matrix[grep("time_modified", rownames(cov_matrix)), grep("time_modi
 
 originalResults <- HonestDiD::constructOriginalCS(betahat = betahat,
                                                   sigma = sigma,
-                                                  numPrePeriods = 4,
-                                                  numPostPeriods = 4)
+                                                  numPrePeriods = 5,
+                                                  numPostPeriods = 3)
 delta_rm_results <-
   HonestDiD::createSensitivityResults_relativeMagnitudes(
     betahat = betahat, #coefficients
     sigma = sigma, #covariance matrix
-    numPrePeriods = 4, #num. of pre-treatment coefs
-    numPostPeriods = 4, #num. of post-treatment coefs
+    numPrePeriods = 5, #num. of pre-treatment coefs
+    numPostPeriods = 3, #num. of post-treatment coefs
     Mbarvec = seq(0.5,2,by=0.5) #values of Mbar
   )
 
 HonestDiD::createSensitivityPlot_relativeMagnitudes(delta_rm_results, originalResults)
+
+## 5.9 Repeated treatment - stacked
+df_retreatments <- final_combined_df  %>% 
+  filter(!is.na(time_modified)) %>% 
+  group_by(treatment, time_modified) %>% 
+  summarize(average_past_treatment = mean(reco_catnat_since_2010))
+
+plot_rep2019 <- ggplot(df_retreatments, aes(x = time_modified, y = average_past_treatment, color = as.factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "The issue of repeated treatment: are transactions comparable across groups?",
+    x = "Years to treatment",
+    y = "Average cumulative recognitions since 2010",
+    color = "Treatment Group",
+    caption = str_wrap("Data: French house sales (DV3F). Return periods are computed using Météo France SWIs. ", width = 160),
+  ) +
+  scale_color_manual(values = c("0" = midnight_blue, "1" = raw_sienna), 
+                     breaks = c("1", "0"), 
+                     labels = c("0" = 'Untreated (return period 10-25)',
+                                "1" = 'Treated (return period >25)'), 
+                     name = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        plot.caption = element_text(hjust = 0))
+
+plot_rep2019
+ggsave(paste0(path_outputs, 'stacked_repeated_treatment_2019.pdf'), plot = plot_rep2019, width = 900/72, height = 425/72, dpi = 72)
+
